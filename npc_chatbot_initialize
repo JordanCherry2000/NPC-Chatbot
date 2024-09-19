@@ -1,0 +1,112 @@
+import nltk
+import json
+from nltk.corpus import wordnet
+from nltk.sentiment.vader import SentimentIntensityAnalyzer
+
+# Download necessary NLTK resources
+import nltk
+nltk.download('taggers')
+
+###nltk.download('averaged_perceptron_tagger')
+nltk.download('wordnet')
+nltk.download('vader_lexicon')
+
+# Initialize the sentiment analyzer
+analyzer = SentimentIntensityAnalyzer()
+
+# Tokenization function
+def basic_tokenize(text):
+    return text.split()
+
+# Helper Functions
+def is_concept(word):
+    synsets = wordnet.synsets(word)
+    return any(synsets)
+
+def update_noun_sentiments(sentence, npc_name, current_state):
+    tokens = basic_tokenize(sentence)
+    pos_tags = nltk.pos_tag(tokens)  # POS tagging
+
+    def is_noun(tag):
+        return tag.startswith('NN')
+
+    sentiment_score = analyzer.polarity_scores(sentence)
+    if sentiment_score['compound'] > 0.05:
+        overall_sentiment = 'positive'
+    elif sentiment_score['compound'] < -0.05:
+        overall_sentiment = 'negative'
+    else:
+        overall_sentiment = 'neutral'
+
+    if overall_sentiment == 'neutral':
+        overall_sentiment = current_state
+
+    try:
+        with open('noun_sentiments.json', 'r') as f:
+            noun_sentiments = json.load(f)
+    except FileNotFoundError:
+        noun_sentiments = {}
+
+    nouns_to_remove = []
+    for word, associations in noun_sentiments.items():
+        if word in tokens:
+            for sentiment, npcs in associations.items():
+                if npc_name in npcs and sentiment != overall_sentiment:
+                    nouns_to_remove.append(word)
+                    break
+
+    for noun in nouns_to_remove:
+        for sentiment, npcs in list(noun_sentiments[noun].items()):
+            if npc_name in npcs:
+                if sentiment == "positive":
+                    changed_opinion_positive(npc_name, noun)
+                if sentiment == "negative":
+                    changed_opinion_negative(npc_name, noun)
+                noun_sentiments[noun][sentiment].remove(npc_name)
+                if not noun_sentiments[noun][sentiment]:
+                    del noun_sentiments[noun][sentiment]
+        if not noun_sentiments[noun]:
+            del noun_sentiments[noun]
+
+    for word in tokens:
+        if is_noun(nltk.pos_tag([word])[0][1]) and is_concept(word):
+            if word in noun_sentiments:
+                if overall_sentiment not in noun_sentiments[word]:
+                    noun_sentiments[word][overall_sentiment] = [npc_name]
+                elif npc_name not in noun_sentiments[word][overall_sentiment]:
+                    noun_sentiments[word][overall_sentiment].append(npc_name)
+            else:
+                noun_sentiments[word] = {overall_sentiment: [npc_name]}
+
+    with open('noun_sentiments.json', 'w') as f:
+        json.dump(noun_sentiments, f, indent=4)
+
+    return overall_sentiment
+
+def is_question(sentence):
+    tokens = basic_tokenize(sentence.lower())
+    if tokens[0] in ['who', 'when', 'where']:
+        return tokens[0]
+    return None
+
+# Placeholder functions
+def changed_opinion_positive(npc_name, noun):
+    print(f"{npc_name} has changed their opinion about {noun} to positive.")
+
+def changed_opinion_negative(npc_name, noun):
+    print(f"{npc_name} has changed their opinion about {noun} to negative.")
+
+# Example main logic
+if __name__ == "__main__":
+    sentence = "How do you feel about the new policy?"
+    npc_name = "NPC_1"
+    current_state = "neutral"
+    
+    # Check if the sentence is a question
+    question_type = is_question(sentence)
+    if question_type:
+        print(f"The sentence is a {question_type} question.")
+    
+    # Update noun sentiments based on the sentence
+    sentiment = update_noun_sentiments(sentence, npc_name, current_state)
+    print(f"The overall sentiment is: {sentiment}")
